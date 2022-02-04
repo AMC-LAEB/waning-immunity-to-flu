@@ -1,0 +1,246 @@
+```{r}
+################################################################################
+# Organise HI data into lists to allow for quicker look up during MCMC
+################################################################################
+
+library(tidyr)
+library(plyr)
+library(dplyr)
+library(reshape2)
+
+load("../dat/acs_dat.RData")
+acs_dat<-acs_dat[,-6]
+load("../dat/vis_dat.RData")
+all_dat<-bind_rows(acs_dat, vis_dat)
+
+# round values where initial dilution was 1:26
+all_dat$LogTiter<-round(all_dat$LogTiter)
+
+# find those vaccinated in 2021 and remove
+all_dat<-all_dat%>%group_by(pat)%>%mutate(vax21=vax[year==2021][1])
+all_dat<-all_dat%>%filter(vax21=="no")
+
+# number of strains
+strs<-levels(as.factor(all_dat$strain))
+n.strain<-length(strs)
+
+################################################################################
+# 2020/21
+################################################################################
+
+dat<-all_dat%>%filter(year>=2020)
+
+# remove na
+dat<-na.omit(dat)
+
+# set start time to 0 for each patient
+dat<-dat%>%group_by(pat, strain)%>%mutate(date=date-min(date, na.rm=T))
+
+################################################################################
+# ACS + VIS 2020/21
+################################################################################
+
+dats<-list()
+for(i in 1:n.strain)
+{
+  subdat<-dat%>%filter(strain==strs[i])
+  subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+  
+  subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+  colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+  
+  dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs_vis/dat_20_21_all.RData")
+
+################################################################################
+# ACS 2020/21
+################################################################################
+
+dats<-list()
+for(i in 1:n.strain)
+{
+  subdat<-dat%>%filter(strain==strs[i] & cohort=="ACS")
+  subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+  
+  subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+  colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+  
+  dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_20_21_all.RData")
+
+################################################################################
+# VIS 2020/21
+################################################################################
+
+dats<-list()
+for(i in 1:n.strain)
+{
+  subdat<-dat%>%filter(strain==strs[i] & cohort=="VIS")
+  subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+  
+  subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+  colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+  
+  dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/vis/dat_20_21_all.RData")
+
+################################################################################
+# 2017/21
+################################################################################
+
+################################################################################
+# ACS
+################################################################################
+
+dat<-all_dat%>%filter(cohort=="ACS")
+dat<-dat%>%group_by(pat, strain)%>%mutate(date=date-min(date, na.rm=T))
+dat<-dat%>%group_by(pat, strain)%>%mutate(sero=max(diff, na.rm = T)>=2)
+dat<-dat%>%filter(sero==F)
+
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_17_21_all.RData")
+
+################################################################################
+# ACS 1-30
+################################################################################
+
+dat$patnum<-as.numeric( gsub("pat ", "", dat$pat) )
+dat_1_30<-dat%>%filter(patnum<=30)
+
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat_1_30%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_17_21_1_30.RData")
+
+
+
+
+dat_1_30<-dat_1_30%>%filter(year>=2020)
+dat_1_30<-na.omit(dat_1_30)
+# set start time to 0 for each patient
+dat_1_30<-dat_1_30%>%group_by(pat, strain)%>%mutate(date=date-min(date, na.rm=T))
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat_1_30%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_20_21_1_30.RData")
+
+################################################################################
+# ACS 31-100
+################################################################################
+
+dat_31_100<-dat%>%filter(patnum>=31)
+
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat_31_100%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_17_21_31_100.RData")
+
+
+
+dat_31_100<-dat_31_100%>%filter(year>=2020)
+dat_31_100<-na.omit(dat_31_100)
+# set start time to 0 for each patient
+dat_31_100<-dat_31_100%>%group_by(pat, strain)%>%mutate(date=date-min(date, na.rm=T))
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat_31_100%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs/dat_20_21_31_100.RData")
+
+################################################################################
+# ACS + VIS 1-30
+################################################################################
+
+vis<-all_dat%>%filter(cohort=="VIS")
+vis<-na.omit(vis)
+# set start time to 0 for each patient
+vis<-vis%>%group_by(pat, strain)%>%mutate(date=date-min(date, na.rm=T))
+
+dat<-bind_rows(vis, dat_1_30)
+
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs_vis/dat_20_21_1_30.RData")
+
+################################################################################
+# ACS + VIS 31-100
+################################################################################
+
+dat<-bind_rows(vis, dat_31_100)
+
+dats<-list()
+for(i in 1:n.strain)
+{
+   subdat<-dat%>%filter(strain==strs[i])
+   subdat<-complete(subdat, pat, rep=c(1,2), year, strain, fill = list(LogTiter = NA))
+   
+   subdat<-subdat[,c("pat", "rep", "date", "strain", "LogTiter")]
+   colnames(subdat)<-c("id", "rep", "t", "strain", "y")
+   
+   dats[[i]]<-subdat
+}
+
+save(dats, file="processed_data/acs_vis/dat_20_21_31_100.RData")
+```
