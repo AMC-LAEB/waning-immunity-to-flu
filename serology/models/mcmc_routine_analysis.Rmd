@@ -1,0 +1,169 @@
+```{r}
+library(dplyr)
+library(rstan)
+library(reshape2)
+
+################################################################################
+# Define/load functions
+################################################################################
+
+# Load data processing functions
+source("data_processing_functions.R")
+
+# Run model fitting with data and niter iterations
+run_mcmc<-function(data, niter)
+{
+  data$pat_id<-factor(data$pat_id)
+  data$strain<-factor(data$strain)
+  
+  # Stan options
+  cores<-4
+  
+  rstan_options(auto_write = TRUE)
+  options(mc.cores = cores)
+  
+  ###########
+  # Fit model
+  ###########
+  
+  data$pat_id<-as.numeric(data$pat_id)
+  data$strain<-as.numeric(data$strain)
+  
+  n_strain<-nlevels(as.factor(data$strain))
+  n_subject<-nlevels(as.factor(data$pat_id))
+  n_data<-nrow(data)
+  
+  fit <- stan(file="wane_indiv.stan", iter=niter, data=list(n_data=n_data,
+                                                            n_strain=n_strain,
+                                                            n_subject=n_subject,
+                                                            year=data$t,
+                                                            LogTiter=data$LogTiter,
+                                                            Strain=data$strain,
+                                                            Subject=data$pat_id))
+  
+  return(fit)
+}
+
+# Get CI's from stan fit
+get_ci<-function(fit)
+{
+  # Summary function gives MCMC quantiles for each variable
+  df<-as.data.frame(summary(fit)$summary)
+  # Put variable names as a column
+  df$param<-rownames(df)
+  # Extract strain and subject id number of each variable. For some variables we
+  # have x[strain, id]. For others just x[strain]. First get the numbers inside
+  # the square brackets.
+  df$indices<-gsub("\\]","",df$param)
+  df$indices<-gsub(".*\\[","",df$indices)
+  
+  # Strain is number before the comma, id is after. If there is no comma then
+  # number refers to strain and id is NA
+  df$strain_id<-as.numeric(gsub("\\,.*","",df$indices))
+  df$id<-as.numeric(gsub(".*\\,","",df$indices))
+  df$id<-ifelse(grepl("\\,", df$indices), df$id, NA)
+  
+  # Change column names of quantiles
+  colnames(df)[colnames(df)=="2.5%"]<-"lolo"
+  colnames(df)[colnames(df)=="25%"]<-"lo"
+  colnames(df)[colnames(df)=="50%"]<-"med"
+  colnames(df)[colnames(df)=="75%"]<-"hi"
+  colnames(df)[colnames(df)=="97.5%"]<-"hihi"
+  
+  # Map strain names to number used in stan model
+  strain<-c("A/H1N1pdm09", "A/H3N2", "B/Victoria", "B/Yamagata")
+  strains<-as.data.frame(strain)
+  strains$strain_id<-as.numeric(as.factor(strains$strain))
+  
+  df<-merge(df, strains)
+  
+  return(df)
+}
+
+run_analysis<-function(data, niter, fn)
+{
+  fit<-run_mcmc(data, niter)
+  # stanfit object is large (over 100mb, so too much for github) instead save
+  # only necessary information:
+  
+  # Calculate parameter CI's
+  out<-get_ci(fit)
+  
+  # Might need to take draws from sigma posterior later so save this
+  sigma_MCMC<-extract(fit, pars=c("sigma"))
+  
+  # Save CIs, sigma posterior and data
+  save(out, sigma_MCMC, data, file=fn )
+}
+
+################################################################################
+# Begin analysis
+################################################################################
+
+# Number of MCMC iterations
+niter<-5000
+
+###########################
+# Load and pre process data
+###########################
+load("../dat/ACS_dat.RData")
+load("../dat/VIS_dat.RData")
+
+# Members 1-30 of ACS deemed to be from a faulty batch. Now have opportunity to
+# remove them (pat_no>=31), only use them (pat_no<=30), or do nothing (skip
+# out next lines).
+acs_dat<-acs_dat%>%filter(pat_no>=31)
+# acs_dat<-acs_dat%>%filter(pat_no<=30)
+
+# Create suffix for file name to indicate which batch is being used. e.g if
+# pat_no>=31, then pats_fn=31_100
+pats_fn<-paste(min(acs_dat$pat_no), max(acs_dat$pat_no), sep="_")
+
+# Prep VIS and ACS dat
+acs_dat<-prep_dat(acs_dat)
+vis_dat<-prep_dat(vis_dat)
+
+# Remove seroconverters from ACS dat (was deemed not appropriate for VIS data
+# since we can rule out vaccination and infection)
+acs_dat<-remove_sero(acs_dat)
+
+################################################################################
+# Run fitting for the four combinations of data
+################################################################################
+
+##################
+# 1) ACS 2017-2021
+##################
+
+data<-acs_dat
+# Run analysis
+run_analysis(data, niter, fn=paste0("../out/acs_yrs_17_21_pats_", pats_fn, "_", niter, ".RData"))
+
+##################
+# 2) ACS 2020-2021
+##################
+
+# Restrict year
+data<-acs_dat%>%filter(year>=2020)
+# Run analysis
+run_analysis(data, niter, fn=paste0("../out/acs_yrs_20_21_pats_", pats_fn, "_", niter, ".RData") )
+
+########
+# 3) VIS
+########
+
+data<-vis_dat
+# Run analysis
+run_analysis(data, niter, fn=paste0("../out/vis_yrs_20_21_", niter, ".RData") )
+
+########################
+# 4) VIS + ACS 2020-2021
+########################
+
+# Restrict year
+acs_sub<-acs_dat%>%filter(year>=2020)
+# Join cohorts
+data<-bind_rows(acs_sub, vis_dat)
+# Run analysis
+run_analysis(data, niter, fn=paste0("../out/acs_vis_pats_", pats_fn, "_", niter, ".RData") )
+```
